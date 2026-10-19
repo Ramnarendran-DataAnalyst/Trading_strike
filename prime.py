@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a NIFTY CE/PE settlement-price window from an NSE option CSV.
+"""Create an option settlement-price window from an NSE option CSV.
 
 The script finds the latest Date in the CSV automatically. For the entered
 base strike it uses the four listed strikes above and below it, then prints
@@ -52,9 +52,16 @@ def display(value: float | None) -> str:
     return str(int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
 
 
-def is_hundred_strike(strike: float) -> bool:
-    """Keep 100-point strikes such as 22600 and 22700 only."""
-    return abs(strike - round(strike / 100) * 100) < 0.001
+def display_strike(value: float) -> str:
+    """Keep a fractional strike intact while formatting whole strikes cleanly."""
+    return str(int(value)) if value.is_integer() else f"{value:g}"
+
+
+def matches_strike_step(strike: float, strike_step: float | None) -> bool:
+    """Apply a requested strike interval; None accepts every listed strike."""
+    if strike_step is None:
+        return True
+    return abs(strike - round(strike / strike_step) * strike_step) < 0.001
 
 
 def read_rows(csv_path: Path) -> list[dict[str, str]]:
@@ -68,7 +75,7 @@ def read_rows(csv_path: Path) -> list[dict[str, str]]:
         return list(reader)
 
 
-def latest_option_data(rows: list[dict[str, str]]):
+def latest_option_data(rows: list[dict[str, str]], strike_step: float | None = None):
     """Return latest-date settlement prices keyed by (strike, CE/PE)."""
     dates = [to_date(row["Date"]) for row in rows]
     valid_dates = [item for item in dates if item is not None]
@@ -86,7 +93,7 @@ def latest_option_data(rows: list[dict[str, str]]):
         option_type = row["Option Type"].strip().upper()
         if strike is None:
             continue
-        if not is_hundred_strike(strike):
+        if not matches_strike_step(strike, strike_step):
             continue
         strikes.add(strike)
         if option_type in {"CE", "PE"} and settlement is not None:
@@ -96,14 +103,14 @@ def latest_option_data(rows: list[dict[str, str]]):
     return latest_date, prices, ordered_strikes
 
 
-def calculate_window(rows: list[dict[str, str]], base_strike: float):
+def calculate_window(rows: list[dict[str, str]], base_strike: float, strike_step: float | None = None):
     """Calculate the CE/PE total and average for the nine-strike window."""
-    latest_date, prices, ordered_strikes = latest_option_data(rows)
+    latest_date, prices, ordered_strikes = latest_option_data(rows, strike_step)
     if base_strike not in ordered_strikes:
         nearest = sorted(ordered_strikes, key=lambda strike: abs(strike - base_strike))[:5]
         nearby = ", ".join(display(strike) for strike in sorted(nearest))
         raise ValueError(
-            f"Strike {display(base_strike)} is unavailable on {latest_date:%d-%b-%Y}. "
+            f"Strike {display_strike(base_strike)} is unavailable on {latest_date:%d-%b-%Y}. "
             f"Nearby available strikes: {nearby}"
         )
 
@@ -123,7 +130,10 @@ def calculate_window(rows: list[dict[str, str]], base_strike: float):
 
 
 def calculate_color_markings(
-    rows: list[dict[str, str]], pre_open_price: float, base_strike: float | None = None
+    rows: list[dict[str, str]],
+    pre_open_price: float,
+    base_strike: float | None = None,
+    strike_step: float | None = None,
 ):
     """Return the screenshot-style Green, Orange, Blue, and Black groups.
 
@@ -138,10 +148,10 @@ def calculate_color_markings(
     Returned entries retain their strike and option side so each displayed value
     can be traced back to the source data.
     """
-    latest_date, prices, ordered_strikes = latest_option_data(rows)
+    latest_date, prices, ordered_strikes = latest_option_data(rows, strike_step)
     if base_strike is not None:
         if base_strike not in ordered_strikes:
-            raise ValueError(f"Base strike {display(base_strike)} is unavailable in the latest-date data.")
+            raise ValueError(f"Base strike {display_strike(base_strike)} is unavailable in the latest-date data.")
         base_index = ordered_strikes.index(base_strike)
         displayed_strikes = set(ordered_strikes[max(0, base_index - 4): base_index + 5])
         if len(displayed_strikes) != 9:
@@ -214,12 +224,12 @@ def calculate_color_markings(
 def print_table(latest_date, base_strike: float, result) -> None:
     print(f"Latest data date used: {latest_date:%d-%b-%Y}")
     print(f"ATM strike base: {display(base_strike)}\n")
-    print("Final processed NIFTY option window")
+    print("Final processed option window")
     print(f"{'Strike':>8}  {'CE':>10}  {'PE':>10}  {'Total (CE + PE)':>16}  {'Average':>10}")
     print("-" * 62)
     for strike, ce, pe, total, average in result:
         print(
-            f"{display(strike):>8}  {display(ce):>10}  {display(pe):>10}  "
+            f"{display_strike(strike):>8}  {display(ce):>10}  {display(pe):>10}  "
             f"{display(total):>16}  {display(average):>10}"
         )
 
@@ -228,16 +238,16 @@ def print_color_markings(latest_date, markings) -> None:
     """Print the screenshot-style color classifications with source strikes."""
     itm = markings["itm_strikes"]
     print(f"\nColor markings for latest date: {latest_date:%d-%b-%Y}")
-    print(f"ITM strikes (pre-open): {display(itm['ce'])} CE, {display(itm['pe'])} PE")
+    print(f"ITM strikes (pre-open): {display_strike(itm['ce'])} CE, {display_strike(itm['pe'])} PE")
     for color in ("green", "orange", "black"):
         values = markings[color]
         label = ", ".join(
-            f"{display(entry['value'])} ({display(entry['strike'])} {entry.get('option_type', 'Prime')})"
+            f"{display(entry['value'])} ({display_strike(entry['strike'])} {entry.get('option_type', 'Prime')})"
             for entry in values if entry is not None
         )
         print(f"{color.title()}: {label}")
     for side, values in markings["blue"].items():
-        label = ", ".join(f"{display(entry['value'])} ({display(entry['strike'])} {side.upper()})" for entry in values)
+        label = ", ".join(f"{display(entry['value'])} ({display_strike(entry['strike'])} {side.upper()})" for entry in values)
         print(f"Blue {side.upper()}: {label}")
 
 
@@ -245,7 +255,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("strike", nargs="?", type=float, help="Base/ATM strike, for example 22700")
     parser.add_argument("--csv", type=Path, default=DEFAULT_CSV, help="Path to the NSE CSV file")
-    parser.add_argument("--pre-open", type=float, help="Pre-open NIFTY price for Green/Orange/Blue/Black groups")
+    parser.add_argument("--pre-open", type=float, help="Pre-open underlying price for Green/Orange/Blue/Black groups")
+    parser.add_argument(
+        "--strike-step",
+        type=float,
+        default=None,
+        help="Optional strike interval, for example 100 for NIFTY. Omit for all listed strikes.",
+    )
     args = parser.parse_args()
 
     try:
@@ -255,10 +271,12 @@ def main() -> int:
         if base_strike is None:
             raise ValueError("Enter a valid numeric strike.")
         rows = read_rows(args.csv)
-        latest_date, result = calculate_window(rows, base_strike)
+        latest_date, result = calculate_window(rows, base_strike, args.strike_step)
         print_table(latest_date, base_strike, result)
         if args.pre_open is not None:
-            color_date, markings = calculate_color_markings(rows, args.pre_open, base_strike)
+            color_date, markings = calculate_color_markings(
+                rows, args.pre_open, base_strike, args.strike_step
+            )
             print_color_markings(color_date, markings)
         return 0
     except (OSError, ValueError) as error:
