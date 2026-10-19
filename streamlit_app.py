@@ -6,10 +6,17 @@ import io
 import pandas as pd
 import streamlit as st
 
-from prime import calculate_color_markings, calculate_window, display, to_date
+from prime import (
+    calculate_color_markings,
+    calculate_window,
+    display,
+    display_strike,
+    latest_option_data,
+    to_date,
+)
 
 
-st.set_page_config(page_title="NIFTY Settlement Analyzer", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Option Settlement Analyzer", page_icon="📈", layout="wide")
 
 
 def read_uploaded_csv(uploaded_file):
@@ -22,14 +29,12 @@ def read_uploaded_csv(uploaded_file):
     return list(reader)
 
 
-st.title("NIFTY Settlement Analyzer")
-st.caption("Settlement-price window calculated from the latest available date in the uploaded CSV.")
+st.title("Option Settlement Analyzer")
+st.caption("Settlement-price window calculated from the latest available date in the uploaded NSE option CSV.")
 
 with st.sidebar:
     uploaded_file = st.file_uploader("Upload NSE option CSV", type="csv")
-    base_strike = st.number_input("ATM / base strike", min_value=0.0, value=22700.0, step=100.0)
-    pre_open_price = st.number_input("Pre-open NIFTY price", min_value=0.0, value=22715.0, step=1.0)
-    calculate = st.button("Calculate", type="primary", use_container_width=True)
+    option_market = st.radio("Option type", ("NIFTY index option", "Stock option"))
 
 if uploaded_file is None:
     st.info("Upload the NSE option CSV to calculate the nine-strike window.")
@@ -44,12 +49,38 @@ except (UnicodeDecodeError, ValueError) as error:
 
 st.write(f"**Latest data date used:** {latest_date:%d-%b-%Y}")
 
+strike_step = 100.0 if option_market == "NIFTY index option" else None
+_, _, available_strikes = latest_option_data(rows, strike_step)
+if not available_strikes:
+    st.error("No valid strikes were found for the selected option type.")
+    st.stop()
+
+default_strike = 22700.0 if option_market == "NIFTY index option" else available_strikes[len(available_strikes) // 2]
+if default_strike not in available_strikes:
+    default_strike = available_strikes[len(available_strikes) // 2]
+strike_increment = 100.0 if option_market == "NIFTY index option" else 1.0
+
+with st.sidebar:
+    base_strike = st.number_input(
+        "ATM / base strike",
+        min_value=0.0,
+        value=float(default_strike),
+        step=strike_increment,
+        help="NIFTY mode uses 100-point strikes. Stock-option mode uses every strike listed in the CSV.",
+    )
+    pre_open_price = st.number_input(
+        "Pre-open underlying price", min_value=0.0, value=float(default_strike), step=1.0
+    )
+    calculate = st.button("Calculate", type="primary", use_container_width=True)
+
 if not calculate:
     st.stop()
 
 try:
-    _, result = calculate_window(rows, float(base_strike))
-    _, markings = calculate_color_markings(rows, float(pre_open_price), float(base_strike))
+    _, result = calculate_window(rows, float(base_strike), strike_step)
+    _, markings = calculate_color_markings(
+        rows, float(pre_open_price), float(base_strike), strike_step
+    )
 except ValueError as error:
     st.error(str(error))
     st.stop()
@@ -67,7 +98,7 @@ def joined(values):
 table_rows = []
 for strike, ce, pe, total, average in result:
     row = {
-        "Strike": display(strike),
+        "Strike": display_strike(strike),
         "CE": display(ce),
         "PE": display(pe),
         "Total (CE + PE)": display(total),
@@ -88,10 +119,10 @@ for strike, ce, pe, total, average in result:
 
 table = pd.DataFrame(table_rows)
 
-st.subheader("Final processed NIFTY option window")
+st.subheader("Final processed option window")
 st.caption(
     f"ITM strikes (pre-open {display(float(pre_open_price))}): "
-    f"{display(itm['ce'])} CE, {display(itm['pe'])} PE"
+    f"{display_strike(itm['ce'])} CE, {display_strike(itm['pe'])} PE"
 )
 st.dataframe(table, hide_index=True, use_container_width=True)
 
@@ -110,7 +141,7 @@ def summary_line(green_value, orange_value, black_value, blue_values):
 
 
 # Separate blocks make each option's levels easy to copy into TradingView.
-st.caption(f"{display(itm['ce'])} CE")
+st.caption(f"{display_strike(itm['ce'])} CE")
 st.code(
     summary_line(
         green.get(itm["ce"]),
@@ -121,7 +152,7 @@ st.code(
     language=None,
 )
 
-st.caption(f"{display(itm['pe'])} PE")
+st.caption(f"{display_strike(itm['pe'])} PE")
 st.code(
     summary_line(
         green.get(itm["pe"]),
@@ -135,6 +166,6 @@ st.code(
 st.download_button(
     "Download result as CSV",
     table.to_csv(index=False).encode("utf-8"),
-    file_name=f"nifty_settlement_window_{latest_date:%Y-%m-%d}_{int(base_strike)}.csv",
+    file_name=f"option_settlement_window_{latest_date:%Y-%m-%d}_{display_strike(float(base_strike))}.csv",
     mime="text/csv",
 )
