@@ -128,6 +128,20 @@ st.dataframe(table, hide_index=True, use_container_width=True)
 
 st.subheader("Levels for indicator (copy into TradingView)")
 
+with st.expander("How the colour levels are calculated"):
+    st.markdown(
+        f"""
+All values use **Settlement Price** from the latest date in the uploaded CSV.
+
+- **Green** identifies the two pre-open ITM options: CE at the highest available strike at or below the pre-open price ({display_strike(itm['ce'])} CE), and PE at the lowest available strike above it ({display_strike(itm['pe'])} PE).
+- **Orange** is the Prime Value for the Green strike: `(CE + PE) / 2`.
+- **Blue** uses option-price comparisons within the displayed nine-strike window. For the CE block, it lists up to three smallest PE values greater than Green CE. For the PE block, it lists up to three smallest CE values greater than Green PE.
+- **Black** is the closest lower option price within the displayed window. For the CE block, it is the largest PE value below Green CE. For the PE block, it is the largest CE value below Green PE.
+
+NIFTY mode includes only 100-point strikes. Stock-option mode uses every strike listed in the uploaded CSV.
+"""
+    )
+
 
 def summary_line(green_value, orange_value, black_value, blue_values):
     return "\n".join(
