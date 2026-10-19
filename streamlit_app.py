@@ -128,17 +128,44 @@ st.dataframe(table, hide_index=True, use_container_width=True)
 
 st.subheader("Levels for indicator (copy into TradingView)")
 
-with st.expander("How the colour levels are calculated"):
+with st.expander("How to read the colour levels", expanded=False):
     st.markdown(
         f"""
-All values use **Settlement Price** from the latest date in the uploaded CSV.
+This app uses the **Settlement Price** on the latest date in the CSV. It first shows nine strikes: your selected strike, four higher strikes, and four lower strikes.
 
-- **Green** identifies the two pre-open ITM options: CE at the highest available strike at or below the pre-open price ({display_strike(itm['ce'])} CE), and PE at the lowest available strike above it ({display_strike(itm['pe'])} PE).
-- **Orange** is the Prime Value for the Green strike: `(CE + PE) / 2`.
-- **Blue** uses option-price comparisons within the displayed nine-strike window. For the CE block, it lists up to three smallest PE values greater than Green CE. For the PE block, it lists up to three smallest CE values greater than Green PE.
-- **Black** is the closest lower option price within the displayed window. For the CE block, it is the largest PE value below Green CE. For the PE block, it is the largest CE value below Green PE.
+### Step 1: choose the two reference options
 
-NIFTY mode includes only 100-point strikes. Stock-option mode uses every strike listed in the uploaded CSV.
+Your pre-open underlying price is **{display(float(pre_open_price))}**.
+
+- **{display_strike(itm['ce'])} CE** is the nearest listed Call strike at or below the pre-open price.
+- **{display_strike(itm['pe'])} PE** is the nearest listed Put strike above the pre-open price.
+
+These are the headings of the two copy blocks below. Think of each Green value as the reference price for its block.
+
+### Step 2: calculate Green and Orange
+
+- **Green** is the Settlement Price of that reference option.
+- **Orange** is the average of the CE and PE Settlement Prices at the same strike: `(CE + PE) ÷ 2`.
+
+### Step 3: calculate Blue and Black
+
+For the **{display_strike(itm['ce'])} CE** block:
+
+- **Blue** lists up to three PE Settlement Prices that are just higher than the Green CE price, beginning with the closest higher price.
+- **Black** is the PE Settlement Price immediately below the Green CE price.
+
+For the **{display_strike(itm['pe'])} PE** block:
+
+- **Blue** lists up to three CE Settlement Prices that are just higher than the Green PE price, beginning with the closest higher price.
+- **Black** is the CE Settlement Price immediately below the Green PE price.
+
+### Current calculation in this result
+
+**{display_strike(itm['ce'])} CE** starts with Green **{display(green.get(itm['ce']))}**. The app finds PE values above **{display(green.get(itm['ce']))}** for Blue (**{joined(markings['blue']['pe'])}**) and the closest PE value below it for Black (**{display(black.get('PE'))}**). Orange is **{display(orange.get(itm['ce']))}**.
+
+**{display_strike(itm['pe'])} PE** starts with Green **{display(green.get(itm['pe']))}**. The app finds CE values above **{display(green.get(itm['pe']))}** for Blue (**{joined(markings['blue']['ce'])}**) and the closest CE value below it for Black (**{display(black.get('CE'))}**). Orange is **{display(orange.get(itm['pe']))}**.
+
+Only prices from the nine rows in the displayed table are considered. NIFTY mode keeps 100-point strikes only. Stock-option mode uses every strike level listed in the uploaded CSV.
 """
     )
 
